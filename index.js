@@ -21,7 +21,7 @@ var extend = function extend (prototypeProperties, constructorProperties) {
   var child = _.has(prototypeProperties, 'constructor') ?
     prototypeProperties.constructor :
     function () { parent.apply(this, arguments); };
-  util.inherits(child, parent); // extend prototype from parent to child:
+  util.inherits(child, parent); // extend prototype from parent to child
   // Add constructor properties from parent and params. Set ``extend``
   // reference as well in case it is not defined on parent.
   _.extend(child, parent, constructorProperties, { extend: extend });
@@ -104,17 +104,16 @@ Charon.Client = extend.call(Function, _.extend({},
   errors, // supply a reference to all errors in Client instances
   {
     constructor: function CharonClient () {
-      // create a blank logger function
-      this.logger = function () {};
+      // create a default blank log function
+      this.log = function () {};
     },
 
-    // may be overridden by the integrator
     // ``options``: Object, set automatically on instance properties
-    //    ``logger``: An optional logger function which should accept the
-    //                following args:
+    //    ``log``: An optional logging function which should accept these args:
     //                ``level`` (String), eg "error", "debug", etc,
     //                ``message`` (String), human-readable log message
     //                ``obj`` (Object), additional data
+    // may be overridden by the integrator
     initialize:  function (options) {
       _.extend(this, options);
       this.initializeResourceManagers();
@@ -166,8 +165,14 @@ Charon.defineManagerOperation = function (options) {
         callback = _.wrap(callback, _.bind(wrapper, this));
       });
     }
+    // this function is responsible for invoking the callback with both
+    // resource and a reference to the instance
+    var onResponseHandlingComplete = _.bind(function (err, response) {
+      return callback(err, response, this);
+    }, this);
+
     var requestSpec = this.buildRequestSpec(options);
-    var responseHandler = this.responseHandlerFactory(callback);
+    var responseHandler = this.responseHandlerFactory(onResponseHandlingComplete);
     this.submitRequest(requestSpec, responseHandler);
   };
 };
@@ -371,7 +376,7 @@ Charon.ResourceManager = extend.call(Function, {
       return _.bind(function (err, responseSpec) {
         var callbackErr;
         if (err) {
-          this.client.logger('error', 'HTTP Client software error', err);
+          this.client.log('error', 'HTTP Client software error', err);
           callbackErr = err;
         }
         else {
@@ -392,7 +397,7 @@ Charon.ResourceManager = extend.call(Function, {
           else if (status >= 500 && status <= 599) {
             // 5xx error
             callbackErr = new Charon.ServiceError(responseSpec);
-            this.client.logger('error', '5xx Service Error', responseSpec);
+            this.client.log('error', '5xx Service Error', responseSpec);
           }
           else if (status >= 200 && status <= 299) {
             // success
@@ -400,7 +405,7 @@ Charon.ResourceManager = extend.call(Function, {
           }
           else { // not sure what this is
             callbackErr = new Charon.RuntimeError('Unrecognized HTTP status code', responseSpec);
-            this.client.logger('error', 'Unrecognized HTTP status code', responseSpec);
+            this.client.log('error', 'Unrecognized HTTP status code', responseSpec);
           }
         }
         return callback(callbackErr);
