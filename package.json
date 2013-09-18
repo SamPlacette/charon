@@ -1,0 +1,26 @@
+{
+  "name": "charon",
+  "description": "A node.js API client factory to abstract away some of the nitty gritty aspects of interacting with a ReST API over HTTP.",
+  "tags": [
+    "REST",
+    "api",
+    "client"
+  ],
+  "version": "0.0.1",
+  "author": "Sam Placette <sam@samplacette.com>",
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/SamPlacette/charon.git"
+  },
+  "bugs": {
+    "url": "http://github.com/SamPlacette/charon/issues"
+  },
+  "engines": [
+    "node >= 0.8.0"
+  ],
+  "main": "index.js",
+  "dependencies": {
+    "request": "~2.27.0",
+    "underscore": "1.5.2"
+  }
+}
