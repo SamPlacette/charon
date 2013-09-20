@@ -4,6 +4,21 @@ var request = require('request');
 
 var Charon = module.exports = {};
 
+// Defines a Client type and returns an instance of it.
+// ``overrides``: Object, optional prototype properties to add to the client
+//                definition.
+// Example:
+//    var MyClient = Charon.ClientFactory({
+//      initialize: function (options) {
+//        this.special = true;
+//        Charon.Client.initialize.apply(this, arguments);
+//      }
+//    });
+Charon.ClientFactory = function (overrides) {
+  var ClientCtor = overrides ? Charon.Client.extend(overrides) : Charon.Client;
+  return new ClientCtor();
+};
+
 // Creates a child of ``this`` constructor, optionally with additional
 // prototype and constructor properties.
 // Preserves inheritance chain for use of ``instanceof``.
@@ -41,7 +56,7 @@ var errors = {};
 errors.Error = extend.call(Error, {
     constructor: function CharonError (message, data) {
       // unpack args: message and data are both optional
-      // if first arg is an object or array, assume ``message`` was omitted and 
+      // if first arg is an object or array, assume ``message`` was omitted and
       // first arg is actually ``data``
       if (_.isObject(message) || _.isArray(message)) {
         data = message;
@@ -72,7 +87,7 @@ errors.Error = extend.call(Error, {
 // the service or one of its components (e.g., 5xx, unhandled exception, service
 // unavailable).
 errors.ConsumerError = errors.Error.extend({ name: 'Charon.ConsumerError' });
-errors.ServiceError = errors.Error.extend({ name: 'Charon.ServiceError' });
+errors.ServiceCallError = errors.Error.extend({ name: 'Charon.ServiceCallError' });
 
 // Error subtypes. These errors are derived from the two basic error types
 // defined above. They are provided here in order to help applications present
@@ -86,267 +101,149 @@ errors.ResourceNotFoundError = errors.ConsumerError.extend({ name: 'Charon.Resou
 // the service cannot fulfill the request at this time due to a resource conflict
 errors.ResourceConflictError = errors.ConsumerError.extend({ name: 'Charon.ResourceConflictError' });
 // Unexpected programming error (e.g., unhandled exception)
-errors.RuntimeError = errors.ServiceError.extend({ name: 'Charon.RuntimeError' });
+errors.RuntimeError = errors.ServiceCallError.extend({ name: 'Charon.RuntimeError' });
 
 // supply a reference to all errors in the Charon library
 _.extend(Charon, errors);
 
 
-// A client contains configuration options and one or more resource services.
+// A client contains configuration options and one or more resource managers.
 // This constructor is an internal implementation detail; integrators are
-// expected to define clients by creating instances using the ``ClientFactory``
-// method, below, and modifying the instance to add necessary service refrences
-// and/or custom initialization logic.
-// Note, Clients must be initialized after ResourceManager references have been
-// assigned. Otherwise, the ResourceManager will not have a reference to the
-// client and will not be able to instantiate new instances.
+// expected to define client singletons using the ``Charon.ClientFactory``.
 Charon.Client = extend.call(Function, _.extend({},
   errors, // supply a reference to all errors in Client instances
   {
-    constructor: function CharonClient () {
-      // create a default blank log function
-      this.log = function () {};
-    },
+    constructor: function Client () {},
 
-    // ``options``: Object, set automatically on instance properties
-    //    ``log``: An optional logging function which should accept these args:
-    //                ``level`` (String), eg "error", "debug", etc,
-    //                ``message`` (String), human-readable log message
-    //                ``obj`` (Object), additional data
-    // may be overridden by the integrator
+    // Initializes the Client instance. Intended to be run just once, at
+    // time of app bootstrap / initialization.
+    // ``options`` (object): The properties in this object will be applied
+    //                       to the instance properties.
+    // May be overridden by the integrator.
     initialize:  function (options) {
       _.extend(this, options);
-      this.initializeResourceManagers();
     },
 
-    initializeResourceManagers: function () {
-      // every constructor reference on the Client instance should receive
-      // a reference to the Client instance.
-      for (field in this) {
-        var member = this[field];
-        if (member.isCharonResourceManagerConstructor) {
-          member.client = this;
-        }
-      }
-    }
-  }), {
-    isCharonClientConstructor: true
-  });
-
-// Defines a Client type and returns an instance of it.
-// ``properties``: Object, optional prototype properties to add to the client.
-// Example:
-//    var MyClient = Charon.ClientFactory({
-//      initialize: function (options) {
-//        this.special = true;
-//        Charon.Client.apply(this, arguments);
-//      }
-//    });
-Charon.ClientFactory = function (properties) {
-  var ClientCtor = Charon.Client.extend(properties);
-  return new ClientCtor();
-};
-
-// A helper utility to allow integrators to define a service operation instance
-// method for a resource service.
-// ``options``: Object, operation definition parameters
-//    ``name``    : String, name of the operation (used for logging)
-//    ``wrappers``: Array, one or more callback wrapper functions.
-//                  Each wrapper function should accept ``wrapped``(Function),
-//                  ``err` (Error), ``resource`` (Object) arguments, and should
-//                  invoke the ``wrapped`` function with error and resource
-//                  arguments.
-//    Note, all other options are passed through to ``buildRequestSpec``.
-Charon.defineManagerOperation = function (options) {
-  return function (callback) {
-    callback || (callback = function () {});
-    if (options.wrappers) {
-      _.each(options.wrappers, function (wrapper) {
-        callback = _.wrap(callback, _.bind(wrapper, this));
-      });
-    }
-    // this function is responsible for invoking the callback with both
-    // resource and a reference to the instance
-    var onResponseHandlingComplete = _.bind(function (err, response) {
-      return callback(err, response, this);
-    }, this);
-
-    var requestSpec = this.buildRequestSpec(options);
-    var responseHandler = this.responseHandlerFactory(onResponseHandlingComplete);
-    this.submitRequest(requestSpec, responseHandler);
-  };
-};
-
-// A helper utility to allow integrators to define "static" versions of
-// service operation instance methods, which may be assigned as a property
-// of the ResourceManager constructor.
-// The resulting static operation method will create a new instance of the
-// manager, execute the specified operation, and return a reference to the
-// new instance.
-// ``operation``: String, name of the instance service operation
-Charon.defineStaticManagerOperation = function (operation) {
-  return function (options, callback) {
-    var instance = new this(options);
-    return instance[operation](callback);
-  }
-};
-
-
-// A predefined service callback wrapper function.
-// Sets resource attributes on instance before returning.
-Charon.setResourceManagerWrapper = function (wrapped, err, resource) {
-  if (! err) {
-    this.resource = resource;
-  }
-  return wrapped(err, resource);
-};
-
-// A service callback wrapper function factory.
-// Creates a callback wrapper function which creates one or more manager
-// instances from a resource attribute, and assigns the manager instance(s)
-// to a property on the manager instance with the name of the attribute name.
-// Parameters:
-// ``relationships``: Object, map of related data attribute names to
-//                    ResourceManager constructors.
-// Example of creating a resource containing a collection of other resources:
-//    MyClient.MyResourceListManager = Charon.ResourceManager.extend({
-//      buildUrl: function () { return '/resource/list'; }
-//      get: Charon.defineManagerOperation({
-//        name: "get",
-//        method: "GET",
-//        wrappers: [
-//          Charon.setResourceManagerWrapper,
-//          // build a list of related ``MyResourceManager`` instances from
-//          // ``resource.items``, and assign to the ``manager.items``
-//          // instance property: 
-//          Charon.buildSetRelatedWrapper({
-//            items: MyClient.MyResourceManager
-//          })
-//        ]
-//      })
-//    });
-Charon.buildSetRelatedWrapper = function (relationships) {
-  return function (wrapped, err, resource) {
-    if (! err) {
-      _.each(relationships, function (ResourceManager, attrName) {
-        var makeResourceManager = function (resourceData) {
-          return new ResourceManager(resourceData);
-        }
-        // support either array or scalar related data:
-        var relatedData = resource[attrName];
-        if (_.isArray(relatedData)) {
-          this[attrName] = _.map(relatedData, makeResourceManager);
-        }
-        else {
-          this[attrName] = makeResourceManager(relatedData);
-        }
-      }, this);
-    }
-    return wrapped(err, resource);
-  };
-};
-
-// Creates a ``ResourceManager`` instance encapsulating a resource and
-// service operations, enacted via requests to one or more ReST services.
-Charon.ResourceManager = extend.call(Function, {
-
-    constructor: function CharonResourceManager (options) {
-      this.client = this.constructor.client;
-      if (! this.client) {
-        throw new TypeError('Charon.ResourceManager definition must be ' +
-          'a member of a Charon.Client instance.');
-      }
-      this.initialize(options);
-    },
-
-    // ``options`` object param may include resource data and any other
-    // information necessary to make the service request, such as an auth token
-    // or search query.
+    // Logs the specified data.
+    // Intended as a logging-lib-agnostic layer, allowing for isomorphic
+    // clients with logging abilities.
+    // Defaults to noop.
     // May be overridden by the integrator.
-    // Note, as a general guiding principle, options should be used to store
-    // data which is needed to make requests pertaining to the resource, but
-    // not part of the resource itself, such as paging parameters. Data which
-    // is technically necessary for the request but which is not related to the
-    // resource, such as an API token, would ideally be stored in the client.
-    // Conversely, data which is integral to the resource, such as an ID,
-    // should be stored directly within the resource and not as an option.
-    // Storing resource attributes in two places raises the possibility of a
-    // conflict.
-    initialize: function (options) {
-      options || (options = {});
-      this.options = _.omit(options, 'resource');
-      this.resource = options.resource || {};
+    log: function (level, message, obj) {},
+
+    // Internal helper function used to pass ``err``, ``data`` to ``next``.
+    // Just some centralized boilerplate that provides the following features:
+    //  - ensures ``err``, ``data`` always present
+    //  - passed undefined instead of ``data`` if ``err`` is present
+    //  - invokes ``next`` callback in context of ``this``
+    invokeNext: function (err, data, next) {
+      var args = [err];
+      if (err) { args.push(undefined); }
+      else if (! err) { args.push(data); }
+      next.apply(this, args);
     },
 
-    // Creates and returns a request specification object.
-    // A request specification object contains the following fields:
-    //  - ``url`` (string): a fully qualified Uniform Resource Locator
-    //  - ``method`` (string): an HTTP method (e.g., "GET")
-    //  - ``headers`` (object): a map of header field names to values
-    //  - ``body`` (object): a JSON-serializable request entity object
-    // The integrator may override this method, but in most cases it will
-    // be sufficient to override one of the more finely-grained
-    // `build<Component>`` methods.
-    buildRequestSpec: function (options) {
-      // unpack args
-      options || (options = {});
-      // end unpack args
-      var requestSpec = {};
-      // add ``requestSpec`` reference to options passed to component builders
-      var subOptions = _.extend({}, options, { requestSpec: requestSpec });
-      
-      // Note, the order of these operations is important
-      requestSpec.method = this.buildMethod(subOptions);
-      requestSpec.url = this.buildUrl(subOptions);
-      requestSpec.headers = this.buildHeaders(subOptions);
-      requestSpec.body = this.buildBody(subOptions);
-      return requestSpec;
+    // Internal helper function used to create function wrappers.
+    // Like _.wrap, except for the following differences:
+    //  - wrapped ``callback`` function is last argument, as per convention
+    //  - ``wrapper`` is expected to take ``callback`` function last, as per
+    //    convention.
+    //  - returned function is bound to ``this`` instance.
+    // Expects the following arguments:
+    // ``callback`` (function): function to be wrapped
+    // ``wrapper`` (function): wrapper function responsible for executing
+    //        ``callback`` with appropriate arguments. Accepts these arguments:
+    //    ``arguments`` - should accept all the arguments of ``callback``
+    //    ``callback`` (function): wrapped function
+    wrap: function wrap (wrapper, callback) {
+      return _.bind(function wrapped () {
+        var args = _.toArray(arguments).concat([callback]);
+        return wrapper.apply(this, args);
+      }, this);
     },
 
-    defaultMethod: "GET",
-
-    // may be overriden by integrator
-    buildMethod: function (options) {
-      return options.method || defaultMethod;
-    },
-
-    // must be overriden by integrator
-    buildUrl: function (options) {
-      throw new TypeError("Not Implemented");
-    },
-
-    // may be overridden by integrator
-    buildHeaders: function (options) { return undefined; },
-  
-    entityMethods: ["PUT", "POST", "OPTIONS"],
-
-    // may be overridden by integrator
-    buildBody: function (options) {
-      if (this.entityMethods.indexOf(options.requestSpec.method) !== -1) {
-        return this.resource;
+    // A response middleware function. Attempts to detect errors
+    // in the ``responseSpec`` and create appropriate error instances to pass
+    // to the ``next`` callback as necessary.
+    // This logic should be common for most APIs, but it may be overidden
+    // by the integrator if so desired.
+    detectErrors: function detectErrors (err, responseSpec, next) {
+      var callbackErr;
+      if (err) {
+        callbackErr = err;
       }
-      return undefined;
+      else {
+        var status = responseSpec.statusCode;
+        if (status == 403) {
+          callbackErr = new Charon.RequestForbiddenError(responseSpec);
+        }
+        else if (status == 404) {
+          callbackErr = new Charon.ResourceNotFoundError(responseSpec);
+        }
+        else if (status == 409) {
+          callbackErr = new Charon.ResourceConflictError(responseSpec);
+        }
+        else if (status >= 400 && status <= 499) {
+          // 4xx error
+          callbackErr = new Charon.ConsumerError(responseSpec);
+        }
+        else if (status >= 500 && status <= 599) {
+          // 5xx error
+          callbackErr = new Charon.ServiceCallError(responseSpec);
+        }
+        else if (! (status >= 200 && status <= 299)) {
+          // not sure what this is, but it's not successful
+          callbackErr = new Charon.RuntimeError('Unrecognized HTTP status code', responseSpec);
+        }
+      }
+      this.invokeNext(callbackErr, responseSpec, next);
     },
 
-    // A Request-lib specific adapter. May be overridden by the integrator
-    // to use a different network communication lib. Responsible for invoking
+    // creates the context used when substituting values in a URL template
+    makeUrlTemplateContext: function (data, options) {
+      return _.extend({}, data, options);
+    },
+
+    // Substitutes template placeholders in a URL with actual values.
+    // URL placeholders may be specified in the form ``:name``, where "name"
+    // is the name of a property in the ``data`` or ``options`` object.
+    // This feature is provided as a shortcut for simple usecases and for
+    // compatibility with services such as Restify and Express. If it does
+    // not meet your needs, you should define a custom url getter function.
+    templateUrl: function (url, data, options) {
+      var urlTemplateRegex = /:([a-zA-Z_$][\w_$]*)/;
+      var templateContext = this.makeUrlTemplateContext(data, options);
+      var matches = urlTemplateRegex.exec(url);
+      // limit to 100 to avoid runaway recursion
+      for (var i = 0; matches && i < 100; i++) {
+        url = url.replace(matches[0], templateContext[matches[1]] || '');
+        matches = urlTemplateRegex.exec(url);
+      }
+      return url;
+    },
+
+    // A network-communication-lib adapter. Responsible for invoking
     // the callback with the following params:
-    //  - err: a CharonError instance or null/undefined
-    //  - responseSpec: a normalized response specification object. Should
+    //  - ``err``: a CharonError instance or null/undefined
+    //  - ``responseSpec``: a normalized response specification object. Should
     //                  contain the following properties:
-    //    - statusCode: the HTTP status code
-    //    - body: the response entity.
-    //    - headers: the response headers
-    //    - requestSpec: the request specification object
-    submitRequest: function (requestSpec, callback) {
+    //    - ``statusCode``: the HTTP status code
+    //    - ``body``: the response entity.
+    //    - ``headers``: the response headers
+    //    - ``requestSpec``: the request specification object
+    // This default implementation is compatible with the request lib
+    // (https://npmjs.org/package/request).
+    // May be overridden by the integrator for compatibility with a different
+    // network communication lib API.
+    submitRequest: function submitRequest (requestSpec, callback) {
       request({
         json: requestSpec.body || true,
         url: requestSpec.url,
         method: requestSpec.method,
         headers: requestSpec.headers
-      }, function (err, response, body) {
+      }, _.bind(function (err, response, body) {
         var callbackErr, responseSpec;
-        if (err) { 
+        if (err) {
           callbackErr = new Charon.RuntimeError('HTTP client error', {
             err: err,
             requestSpec: requestSpec
@@ -360,91 +257,203 @@ Charon.ResourceManager = extend.call(Function, {
             requestSpec: requestSpec
           };
         }
-        callback(callbackErr, responseSpec);
-      });
+        this.invokeNext(callbackErr, responseSpec, callback);
+      }, this));
     },
 
-    // A network-communication-library-agnostic response processing layer.
-    // Creates a function responsible for processing the given CharonError
-    // instance / response specification object pair, and in turn either
-    // invoking the given callback with a CharonError instance, or passing
-    // the responseSpec to a resource extraction method.
-    // This method is primarily useful as a generic handler for HTTP
-    // status codes and should not need to be overridden for most general
-    // integration needs.
-    responseHandlerFactory: function (callback) {
-      return _.bind(function (err, responseSpec) {
-        var callbackErr;
-        if (err) {
-          this.client.log('error', 'HTTP Client software error', err);
-          callbackErr = err;
-        }
-        else {
-          var status = responseSpec.statusCode;
-          if (status == 403) {
-            callbackErr = new Charon.RequestForbiddenError(responseSpec);
-          }
-          else if (status == 404) {
-            callbackErr = new Charon.ResourceNotFoundError(responseSpec);
-          }
-          else if (status == 409) {
-            callbackErr = new Charon.ResourceConflictError(responseSpec);
-          }
-          else if (status >= 400 && status <= 499) {
-            // 4xx error
-            callbackErr = new Charon.ConsumerError(responseSpec);
-          }
-          else if (status >= 500 && status <= 599) {
-            // 5xx error
-            callbackErr = new Charon.ServiceError(responseSpec);
-            this.client.log('error', '5xx Service Error', responseSpec);
-          }
-          else if (status >= 200 && status <= 299) {
-            // success
-            return this.parseResource(responseSpec, callback);
-          }
-          else { // not sure what this is
-            callbackErr = new Charon.RuntimeError('Unrecognized HTTP status code', responseSpec);
-            this.client.log('error', 'Unrecognized HTTP status code', responseSpec);
-          }
-        }
-        return callback(callbackErr);
+    // Defines a ResourceManager type and returns an instance of it.
+    // ``overrides``: Object, optional prototype properties to add to the
+    //                resource manager definition.
+    // Example:
+    //    MyClient.Resource = MyClient.ResourceManagerFactory({
+    //      url: "/resource"
+    //    });
+    ResourceManagerFactory: function (overrides) {
+      var ResourceManagerCtor = overrides ? Charon.ResourceManager.extend(overrides) : Charon.ResourceManager;
+      return new ResourceManagerCtor(this);
+    },
+
+    // Methods that do not include a request body by default. This is shared
+    // by all resource managers and service calls within a client.
+    bodyExclusionMethods: ['GET', 'HEAD'],
+
+    // The following service call parameters may defined as defaults
+    // at the client or resource manager level and overridden by the service
+    // call definition.
+    serviceCallParams: [
+      "parseResource", "responseMiddleware",
+      // The following request specification params may be defined as either
+      // static values or as functions which return the appropriate value.
+      "url", "method", "headers", "body"
+    ],
+
+    // default URL.
+    // URL is a required param and is not defined by default.
+    url: undefined,
+
+    // default request method.
+    method: "GET",
+
+    // default request headers.
+    // defaults to no headers.
+    headers: undefined,
+
+    // default request body.
+    // defaults to returning first arg to service call.
+    body: function (data, options) {
+      return data;
+    },
+
+    // default resource parser.
+    // Executes after all callback wrappers. Responsible for parsing the
+    // resource from the response and passing ``err``, ``resource`` to the
+    // next callback.
+    parseResource: function parseResource (err, responseSpec, next) {
+      var resource = responseSpec ? responseSpec.body : undefined;
+      this.invokeNext(err, resource, next);
+    },
+
+    // default response middleware.
+    // May be used for common error handling, logging, etc., or may be disabled
+    // by simply acting as a pass-through.
+    // Responsible for passing ``err``, ``resourceSpec`` to ``next``.
+    responseMiddleware: function responseMiddleware (err, responseSpec, next) {
+      this.detectErrors(err, responseSpec, next);
+    }
+
+  }), {
+    isCharonClientConstructor: true
+  });
+
+
+
+// A resource manager is essentially a container for several services that act
+// on a common resource type. A resource manager is tied at the belt to a
+// specific client instance, but its behavior may be modified from the
+// client defaults by changing the properties of the resource manager.
+Charon.ResourceManager = extend.call(Function,
+  {
+    // ``client`` (object): CharonClient instance
+    constructor: function ResourceManager (client) {
+      this.linkClient(client);
+    },
+
+    // links the resource manager instance to the client
+    // ``client`` (object): CharonClient instance
+    linkClient: function (client) {
+      this.client = client;
+      for (var propertyName in client) {
+        this.linkClientProperty(propertyName);
+      }
+    },
+
+    // links a single property from the client (identified by ``propertyName``
+    // to ``this`` instance
+    linkClientProperty: function (propertyName) {
+      var value = this.client[propertyName];
+      if (! _.isUndefined(this[propertyName])) {
+        // pass, defer to resource manager prototype properties
+      }
+      else if (_.isFunction(value)) {
+        // copy functions (including the error ctors) by direct reference
+        this[propertyName] = value;
+      }
+      else if (_.contains(this.client.serviceCallParams, propertyName)) {
+        // default service call params which are not function values are proxied
+        // via getter functions
+        this[propertyName] = function () { return this.client[propertyName]; };
+      }
+      // all other properties are assumed to be client configuration, and
+      // should be accessed by referencing the ``client`` instance property.
+    },
+
+    // Function factory which defines a service call.
+    // A "service call" is an abstraction around a RESTful service, and the
+    //  means by which a client user may make a request to the service and
+    //  receive a response.
+    // ``serviceCallDefinitionParams`` (object): factory params
+    // Some parameter properties may be either a static value, or a getter
+    // function. Getters are called in the context of the resource manager,
+    // and get passed the service call's ``data`` and ``options`` arguments.
+    //  - ``url`` (string or function): returns a fully qualified Uniform
+    //                       Resource Locator.
+    //  - ``method`` (string or function): returns an HTTP method. Optional.
+    //  - ``headers`` (object or function): returns a map of HTTP header names
+    //                       to values.
+    //  - ``body`` (object or function): returns a JSON-serializable request
+    //                       entity object.
+    //  - ``responseMiddleware`` (function): Response handler middleware function.
+    //                       Should invoke the ``next`` callback, passing error
+    //                       and responseSpec object. Accepts arguments:
+    //    - ``err`` (object): CharonError instance or falsey
+    //    - ``responseSpec`` (object): response specification object
+    //    - ``next`` (function): callback function
+    //  - ``parseResource`` (function): Resource parser middleware function.
+    //                       Should invoke the ``next`` callback, passing error
+    //                       and parsed resource object. Accepts arguments:
+    //    - ``err`` (object): CharonError instance or falsey
+    //    - ``responseSpec`` (object): response specification object
+    //    - ``next`` (function): callback function
+    defineServiceCall: function (serviceCallDefinition) {
+      // unpack params
+      var params = _.clone(serviceCallDefinition);
+      // apply default values
+      _.each(this.client.serviceCallParams, function (paramName) {
+        params[paramName] || (params[paramName] = this[paramName]);
       }, this);
+      // end unpack params
+
+      // define service call function:
+      return function ServiceCall (data, options, callback) {
+        // unpack params
+        // options may be omitted; accept shifted params
+        if (_.isFunction(options)) {
+          callback = options;
+          options = undefined;
+        }
+        // apply default values
+        data || (data = {});
+        options || (options = {});
+        callback || (callback = function () {});
+        // end unpack params
+        var getValue = _.bind(function (param) {
+          return _.isFunction(param) ? param.call(this, data, options) : param;
+        }, this);
+
+        var method = getValue(params.method);
+        var body;
+        if (! _.contains(this.client.bodyExclusionMethods, method)) {
+          body = getValue(params.body);
+        }
+        var requestSpec = {
+          url: this.templateUrl(getValue(params.url), data, options),
+          method: method,
+          headers: getValue(params.headers),
+          body: body
+        };
+
+        // convert response to resource before invoking callback
+        var responseHandler = this.wrap(params.parseResource, callback);
+        // let response middleware do whatever it does before invoking callback
+        responseHandler = this.wrap(params.responseMiddleware, responseHandler);
+
+        this.submitRequest(requestSpec, responseHandler);
+      };
+      return this;
     },
 
-    // Responsible for parsing the normalized response specification object
-    // into a resource object and invoking the callback with ``err``,
-    // ``resource`` args. Unlike ``responseHandlerFactory``, this method is
-    // concerned with the body and not with metadata.
-    // This method may be overridden by the integrator.
-    parseResource: function (responseSpec, callback) {
-      return callback(null, responseSpec.body);
+    // Defines multiple service calls and assigns to properties on this
+    // instance.
+    // ``serviceCallDeclaration`` (object): map of instance property names to
+    // service call definition parameters. See
+    // ``Charon.ResourceManager.defineServiceCall`` for more information on
+    // expected params.
+    declareServiceCalls: function (serviceCallDeclaration) {
+      _.each(serviceCallDeclaration, function (definitionParams, name) {
+        this[name] = this.defineServiceCall(definitionParams);
+      }, this);
     }
 
   }, {
     isCharonResourceManagerConstructor: true
-  }
-);
-
-// An example/template of a manager definition with several basic CRUD service
-// operations (get, save, and delete).
-Charon.CrudResourceManager = Charon.ResourceManager.extend({
-  get: Charon.defineManagerOperation({
-    name: "get",
-    method: "GET",
-    wrappers: [ Charon.setResourceManagerWrapper ]
-  }),
-  save: Charon.defineManagerOperation({
-    name: "save",
-    method: "PUT",
-    wrappers: [ Charon.setResourceManagerWrapper ]
-  }),
-  "delete": Charon.defineManagerOperation({
-    name: "delete",
-    method: "DELETE"
-  })
-}, {
-  // "static" get and delete methods:
-  get: Charon.defineStaticManagerOperation("get"),
-  "delete": Charon.defineStaticManagerOperation("delete")
-});
+  });
