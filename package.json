@@ -6,7 +6,7 @@
     "api",
     "client"
   ],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Sam Placette <sam@samplacette.com>",
   "repository": {
     "type": "git",
@@ -22,5 +22,11 @@
   "dependencies": {
     "request": "~2.27.0",
     "underscore": "1.5.2"
+  },
+  "devDependencies": {
+    "mocha": "*",
+    "nock": "*",
+    "should": "*",
+    "sinon": "*"
   }
 }

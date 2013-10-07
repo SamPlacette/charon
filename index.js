@@ -87,7 +87,9 @@ errors.Error = extend.call(Error, {
 // the service or one of its components (e.g., 5xx, unhandled exception, service
 // unavailable).
 errors.ConsumerError = errors.Error.extend({ name: 'Charon.ConsumerError' });
-errors.ServiceCallError = errors.Error.extend({ name: 'Charon.ServiceCallError' });
+errors.ServiceError = errors.Error.extend({ name: 'Charon.ServiceError' });
+
+errors.ServiceCallError = errors.ServiceError;  // deprecated
 
 // Error subtypes. These errors are derived from the two basic error types
 // defined above. They are provided here in order to help applications present
@@ -101,7 +103,7 @@ errors.ResourceNotFoundError = errors.ConsumerError.extend({ name: 'Charon.Resou
 // the service cannot fulfill the request at this time due to a resource conflict
 errors.ResourceConflictError = errors.ConsumerError.extend({ name: 'Charon.ResourceConflictError' });
 // Unexpected programming error (e.g., unhandled exception)
-errors.RuntimeError = errors.ServiceCallError.extend({ name: 'Charon.RuntimeError' });
+errors.RuntimeError = errors.ServiceError.extend({ name: 'Charon.RuntimeError' });
 
 // supply a reference to all errors in the Charon library
 _.extend(Charon, errors);
@@ -189,7 +191,7 @@ Charon.Client = extend.call(Function, _.extend({},
         }
         else if (status >= 500 && status <= 599) {
           // 5xx error
-          callbackErr = new Charon.ServiceCallError(responseSpec);
+          callbackErr = new Charon.ServiceError(responseSpec);
         }
         else if (! (status >= 200 && status <= 299)) {
           // not sure what this is, but it's not successful
@@ -396,7 +398,7 @@ Charon.ResourceManager = extend.call(Function,
     //    - ``next`` (function): callback function
     defineServiceCall: function (serviceCallDefinition) {
       // unpack params
-      var params = _.clone(serviceCallDefinition);
+      var params = _.clone(serviceCallDefinition || {});
       // apply default values
       _.each(this.client.serviceCallParams, function (paramName) {
         params[paramName] || (params[paramName] = this[paramName]);
