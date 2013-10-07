@@ -22,8 +22,8 @@ Don't call it a framework
 
 Charon is a simple library focused on abstracting RESTful service calls.
 Service methods have a familiar ``(data, [options,] callback)`` signature, and
-callbacks are called with ``(err, data)`` - that's the _only_  your
-application code should interact with. 
+callbacks are called with ``(err, data)`` - that's the _only_ interface your
+application code should have to deal with. 
 
 Charon is designed to produce stateless clients, and data is passed around as
 plain old JSON-serializable objects with no getter/setter functions or any
