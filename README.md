@@ -37,6 +37,7 @@ Assumptions
 * all service communication happens over HTTP, or something like it
 * all service communications are asynchronous
 * all data is JSON-serializable
+* all JSON response bodies are objects (or possibly arrays)
 * works with node.js only
 
 Todo: Make it better

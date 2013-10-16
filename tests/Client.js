@@ -82,8 +82,8 @@ describe('Client', function () {
         { statusCode: 403, expectedError: Charon.RequestForbiddenError },
         { statusCode: 404, expectedError: Charon.ResourceNotFoundError },
         { statusCode: 409, expectedError: Charon.ResourceConflictError },
-        { statusCode: 500, expectedError: Charon.ServiceCallError },
-        { statusCode: 583, expectedError: Charon.ServiceCallError },
+        { statusCode: 500, expectedError: Charon.ServiceError },
+        { statusCode: 583, expectedError: Charon.ServiceError },
         { statusCode: undefined, expectedError: Charon.RuntimeError,
           expectedMessage: 'Unrecognized HTTP status code' },
         { statusCode: -18, expectedError: Charon.RuntimeError,
@@ -189,6 +189,51 @@ describe('Client', function () {
           err.data.requestSpec.should.eql({
             url: 'foo://example.com/',
             requestSpecProp: "token"
+          });
+          done();
+        }
+      );
+    });
+
+    it('should invoke callback with ParseError on badly formatted response', function (done) {
+      nock('http://example.com').get('/').reply(200,
+        "%% This is not a JSON response {!#]",
+        { "content-type": "application/json" }
+      );
+      DefaultClient.submitRequest(
+        { url: 'http://example.com/', requestSpecProp: "token" },
+        function (err, data) {
+          should.exist(err);
+          should.not.exist(data);
+          err.should.be.an.instanceof(Charon.ParseError);
+          err.message.should.equal('Failed to parse resource identified as JSON');
+          err.data.err.should.be.an.Error;
+          err.data.err.should.be.an.instanceOf.SyntaxError;
+          err.data.responseSpec.body.should.eql("%% This is not a JSON response {!#]");
+          err.data.responseSpec.requestSpec.should.eql({
+            url: 'http://example.com/',
+            requestSpecProp: "token"
+          });
+          done();
+        }
+      );
+    });
+
+    it('should invoke callback with TimeoutError if response is not received before timeout period', function (done) {
+      DefaultClient.submitRequest(
+        // short timeout ensures timeout will trigger before request is sent
+        { url: 'http://example.com/', requestSpecProp: "token", timeout: 1 },
+        function (err, data) {
+          should.exist(err);
+          should.not.exist(data);
+          err.should.be.an.instanceof(Charon.TimeoutError);
+          err.message.should.equal('Timeout after 1ms');
+          err.data.err.should.be.an.Error;
+          err.data.err.code.should.equal("ETIMEDOUT");
+          err.data.requestSpec.should.eql({
+            url: 'http://example.com/',
+            requestSpecProp: "token",
+            timeout: 1
           });
           done();
         }

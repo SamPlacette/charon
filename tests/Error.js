@@ -10,7 +10,9 @@ describe('Error', function () {
     { name: "RequestForbiddenError", parents: [Charon.ConsumerError] },
     { name: "ResourceNotFoundError", parents: [Charon.ConsumerError] },
     { name: "ResourceConflictError", parents: [Charon.ConsumerError] },
-    { name: "RuntimeError", parents: [Charon.ServiceError] }
+    { name: "RuntimeError", parents: [Charon.ServiceError] },
+    { name: "ParseError", parents: [Charon.ServiceError] },
+    { name: "TimeoutError", parents: [Charon.ServiceError] }
   ];
   testCases.forEach(function (testCase) {
     var name = testCase.name;

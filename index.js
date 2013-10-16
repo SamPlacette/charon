@@ -82,14 +82,14 @@ errors.Error = extend.call(Error, {
     isCharonErrorConstructor: true
   });
 
-// Two basic error types are used to describe whether the error is due to
-// usage (e.g., 4xx, invalid data, unauthorized user) or due to a fault within
-// the service or one of its components (e.g., 5xx, unhandled exception, service
-// unavailable).
+// Indicates a problem which in usage may be resolved by the consumer, e.g.,
+// 4xx, invalid data, unauthorized user.
 errors.ConsumerError = errors.Error.extend({ name: 'Charon.ConsumerError' });
+// Indicates a problem somewhere in the service or one of its components, e.g.,
+// 5xx, unhandled exception, service unavailable). Note, in this context, the
+// "service" includes the client through which the service is invoked.
+// Basically, any problem that is not due to usage is a "Service Error".
 errors.ServiceError = errors.Error.extend({ name: 'Charon.ServiceError' });
-
-errors.ServiceCallError = errors.ServiceError;  // deprecated
 
 // Error subtypes. These errors are derived from the two basic error types
 // defined above. They are provided here in order to help applications present
@@ -104,6 +104,10 @@ errors.ResourceNotFoundError = errors.ConsumerError.extend({ name: 'Charon.Resou
 errors.ResourceConflictError = errors.ConsumerError.extend({ name: 'Charon.ResourceConflictError' });
 // Unexpected programming error (e.g., unhandled exception)
 errors.RuntimeError = errors.ServiceError.extend({ name: 'Charon.RuntimeError' });
+// Failure to parse service response. Generally indicates bad format.
+errors.ParseError = errors.ServiceError.extend({ name: 'Charon.ParseError' });
+// Service did not complete within specified timeout period
+errors.TimeoutError = errors.ServiceError.extend({ name: 'Charon.TimeoutError' });
 
 // supply a reference to all errors in the Charon library
 _.extend(Charon, errors);
@@ -242,14 +246,24 @@ Charon.Client = extend.call(Function, _.extend({},
         json: requestSpec.body || true,
         url: requestSpec.url,
         method: requestSpec.method,
-        headers: requestSpec.headers
+        headers: requestSpec.headers,
+        timeout: requestSpec.timeout
       }, _.bind(function (err, response, body) {
         var callbackErr, responseSpec;
         if (err) {
-          callbackErr = new Charon.RuntimeError('HTTP client error', {
-            err: err,
-            requestSpec: requestSpec
-          });
+          if (err.code && err.code.indexOf("TIMEDOUT") !== -1) {
+            callbackErr = new Charon.TimeoutError(
+              "Timeout after " + requestSpec.timeout + "ms", {
+                err: err,
+                requestSpec: requestSpec
+              });
+          }
+          else {
+            callbackErr = new Charon.RuntimeError('HTTP client error', {
+              err: err,
+              requestSpec: requestSpec
+            });
+          }
         }
         else {
           responseSpec = {
@@ -258,6 +272,30 @@ Charon.Client = extend.call(Function, _.extend({},
             headers: response.headers,
             requestSpec: requestSpec
           };
+          // The request lib silently fails on JSON parse errors.
+          // We should make parse failures explicit in order to "communicate
+          // bad news as soon as possible and in as much detail as possible".
+          // Note, This error-checking code will give a false positive for
+          // JSON-serialized string response bodies, because those strings will
+          // have already been parsed by the Request lib. However, String
+          // response bodies are not a common use-case for JSON entities.
+          if (_.isString(body)) {
+            var responseType = response.headers['content-type'];
+            if ((responseType || '').indexOf('application/json') === 0) {
+              // resource indicates JSON but body is not parsed
+              try {
+                responseSpec.body = JSON.parse(responseSpec.body);
+              }
+              catch (e) {
+                callbackErr = new Charon.ParseError(
+                  'Failed to parse resource identified as JSON',
+                  {
+                    err: e,
+                    responseSpec: responseSpec
+                  });
+              }
+            }
+          }
         }
         this.invokeNext(callbackErr, responseSpec, callback);
       }, this));
@@ -286,7 +324,7 @@ Charon.Client = extend.call(Function, _.extend({},
       "parseResource", "responseMiddleware",
       // The following request specification params may be defined as either
       // static values or as functions which return the appropriate value.
-      "url", "method", "headers", "body"
+      "url", "method", "headers", "body", "timeout"
     ],
 
     // default URL.
@@ -305,6 +343,10 @@ Charon.Client = extend.call(Function, _.extend({},
     body: function (data, options) {
       return data;
     },
+
+    // default timeout period.
+    // defaults to disabled
+    timeout: undefined,
 
     // default resource parser.
     // Executes after all callback wrappers. Responsible for parsing the
@@ -384,6 +426,9 @@ Charon.ResourceManager = extend.call(Function,
     //                       to values.
     //  - ``body`` (object or function): returns a JSON-serializable request
     //                       entity object.
+    //  - ``timeout`` (int or function): A time period, in milliseconds, after
+    //                       which the request should be aborted and an error
+    //                       should be passed to the callback.
     //  - ``responseMiddleware`` (function): Response handler middleware function.
     //                       Should invoke the ``next`` callback, passing error
     //                       and responseSpec object. Accepts arguments:
@@ -431,7 +476,8 @@ Charon.ResourceManager = extend.call(Function,
           url: this.templateUrl(getValue(params.url), data, options),
           method: method,
           headers: getValue(params.headers),
-          body: body
+          body: body,
+          timeout: getValue(params.timeout)
         };
 
         // convert response to resource before invoking callback

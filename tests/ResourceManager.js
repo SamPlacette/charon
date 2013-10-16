@@ -82,7 +82,8 @@ describe('ResourceManager', function () {
       url: "http://example.com/",
       method: "GET",
       headers: { "test": "testHeaderValue" },
-      body: undefined // must be undefined because method is GET
+      body: undefined, // must be undefined because method is GET
+      timeout: 42
     };
 
     it('should use service param defaults from Client', function () {

@@ -6,7 +6,7 @@
     "api",
     "client"
   ],
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Sam Placette <sam@samplacette.com>",
   "repository": {
     "type": "git",
@@ -28,5 +28,8 @@
     "nock": "*",
     "should": "*",
     "sinon": "*"
+  },
+  "scripts": {
+    "test": "node node_modules/.bin/mocha tests/"
   }
 }
