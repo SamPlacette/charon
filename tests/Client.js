@@ -5,6 +5,9 @@ var request = require('request');
 var Charon = require('../index.js');
 
 var DefaultClient = Charon.ClientFactory();
+DefaultClient.initialize({
+  testConfigValue: "this-is-a-test-config-value"
+});
 
 describe('ClientFactory', function () {
   it('should apply constructor overrides to instance properties', function () {
@@ -34,6 +37,13 @@ describe('Client', function () {
       Client.headers.should.have.keys(['test']);
       Client.headers.should.have.property('test', 'header');
       Client.should.have.property('foo', 'bar');
+    });
+
+    it('should set `isInitialized` to `true`', function () {
+      var Client = Charon.ClientFactory();
+      Client.isInitialized.should.equal(false);
+      Client.initialize();
+      Client.isInitialized.should.equal(true);
     });
   });
 
@@ -162,6 +172,18 @@ describe('Client', function () {
     it('should not get stuck in circular loop', function () {
       DefaultClient.templateUrl(urlTemplate, { fooId: ":barId" }, { barId: ":barId" })
         .should.equal("/foo/:barId/bar/:barId");
+    });
+
+    it('should replace placeholders with data from config', function () {
+      var urlTemplateWithConfigPlaceholder = ":testConfigValue" + urlTemplate;
+      DefaultClient.templateUrl(urlTemplateWithConfigPlaceholder, { fooId: 5 }, { barId: 42 })
+        .should.equal("this-is-a-test-config-value/foo/5/bar/42");
+    });
+
+    it('should accept a filename extension after a placeholder', function () {
+      var urlTemplateWithExtension = urlTemplate + ".json";
+      DefaultClient.templateUrl(urlTemplateWithExtension, { fooId: 5 }, { barId: 42 })
+        .should.equal("/foo/5/bar/42.json");
     });
 
   });

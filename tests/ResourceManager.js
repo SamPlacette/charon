@@ -86,18 +86,49 @@ describe('ResourceManager', function () {
       timeout: 42
     };
 
+    var testPostRequestSpecProps = {
+      url: "http://example.com/",
+      method: "POST",
+      headers: { "test": "testHeaderValue" },
+      body: { "foo": "bartest" },
+      timeout: 42
+    };
+
+    it('should invoke callback with RuntimeError if not initialized', function () {
+      var Client = Charon.ClientFactory();
+      // do NOT initialize
+      Client.ResourceMgr = Client.ResourceManagerFactory();
+      Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall();
+      var spyCallback = sinon.spy();
+      Client.ResourceMgr.serviceCall(spyCallback);
+      spyCallback.getCall(0).args[0].should.be.an.instanceOf(Charon.RuntimeError);
+    });
+
     it('should use service param defaults from Client', function () {
       var Client = Charon.ClientFactory(_.extend({}, testRequestSpecProps, {
         submitRequest: sinon.spy()
       }));
+      Client.initialize();
       Client.ResourceMgr = Client.ResourceManagerFactory();
       Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall();
       Client.ResourceMgr.serviceCall();
       Client.submitRequest.getCall(0).args[0].should.eql(testRequestSpecProps);
     });
 
+    it('should use body default from Client for request methods that have a body', function () {
+      var Client = Charon.ClientFactory(_.extend({}, testPostRequestSpecProps, {
+        submitRequest: sinon.spy()
+      }));
+      Client.initialize();
+      Client.ResourceMgr = Client.ResourceManagerFactory();
+      Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall();
+      Client.ResourceMgr.serviceCall();
+      Client.submitRequest.getCall(0).args[0].should.eql(testPostRequestSpecProps);
+    });
+
     it('should use service param defaults from ResourceManager', function () {
       var Client = Charon.ClientFactory({ submitRequest: sinon.spy() });
+      Client.initialize();
       Client.ResourceMgr = Client.ResourceManagerFactory(testRequestSpecProps);
       Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall();
       Client.ResourceMgr.serviceCall();
@@ -106,6 +137,7 @@ describe('ResourceManager', function () {
 
     it('should prioritize params in service call definition', function () {
       var Client = Charon.ClientFactory({ submitRequest: sinon.spy() });
+      Client.initialize();
       Client.ResourceMgr = Client.ResourceManagerFactory(testRequestSpecProps);
 
       var modifiedTestRequestSpecProps = _.extend({}, testRequestSpecProps,
@@ -115,6 +147,20 @@ describe('ResourceManager', function () {
       Client.ResourceMgr.serviceCall();
       Client.submitRequest.calledWith(modifiedTestRequestSpecProps)
                                                           .should.be.true;
+    });
+
+    it('should use body param from service call for request methods that have a body', function () {
+      var Client = Charon.ClientFactory(_.extend({}, _.omit(testPostRequestSpecProps, 'body'), {
+        submitRequest: sinon.spy()
+      }));
+      var dataParam = { "sed": "awk" };
+      var expectedRequestSpecProps = _.extend({}, testPostRequestSpecProps,
+                                              { body: dataParam });
+      Client.initialize();
+      Client.ResourceMgr = Client.ResourceManagerFactory();
+      Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall();
+      Client.ResourceMgr.serviceCall(dataParam);
+      Client.submitRequest.getCall(0).args[0].should.eql(expectedRequestSpecProps);
     });
 
     it('should call responseMiddleware with err on error', function (done) {
@@ -136,7 +182,6 @@ describe('ResourceManager', function () {
         done();
       });
     });
-
 
     it('should call responseMiddleware with data on success', function (done) {
       var Client = Charon.ClientFactory();
@@ -202,6 +247,7 @@ describe('ResourceManager', function () {
 
     it('should invoke callback with err on error', function (done) {
       var Client = Charon.ClientFactory();
+      Client.initialize();
       Client.ResourceMgr = Client.ResourceManagerFactory();
       Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall(
                                                 testRequestSpecProps);
@@ -218,6 +264,7 @@ describe('ResourceManager', function () {
 
     it('should invoke callback with data on success', function (done) {
       var Client = Charon.ClientFactory();
+      Client.initialize();
       Client.ResourceMgr = Client.ResourceManagerFactory();
       Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall(
                                                 testRequestSpecProps);
@@ -237,6 +284,7 @@ describe('ResourceManager', function () {
           next(null, { data2: responseSpec.body.data + 'bar' });
         }
       });
+      Client.initialize();
       Client.ResourceMgr = Client.ResourceManagerFactory();
       Client.ResourceMgr.serviceCall = Client.ResourceMgr.defineServiceCall(
                                                 testRequestSpecProps);
@@ -254,6 +302,7 @@ describe('ResourceManager', function () {
   describe('declareServiceCalls', function () {
     it('should define and set multiple service calls', function () {
       var Client = Charon.ClientFactory();
+      Client.initialize();
       Client.ResourceMgr = Client.ResourceManagerFactory();
       Client.ResourceMgr.declareServiceCalls({
         "serviceCall1": {},

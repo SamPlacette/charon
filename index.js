@@ -52,24 +52,24 @@ var errors = {};
 // should test positive as ``instanceof`` this constructor, but in practice
 // all errors are actually created using a more specific error defined below.
 // ``message``: optional string describing the problem. Intended for debugging.
-// ``data``: optional object or array with more information about the error
+// ``data``: optional object with more information about the error
 errors.Error = extend.call(Error, {
     constructor: function CharonError (message, data) {
       // unpack args: message and data are both optional
-      // if first arg is an object or array, assume ``message`` was omitted and
+      // if first arg is an object, assume ``message`` was omitted and
       // first arg is actually ``data``
-      if (_.isObject(message) || _.isArray(message)) {
+      if (_.isObject(message)) {
         data = message;
         message = undefined;
       }
       // end unpack args
       if (data) {
-        if (_.isObject(data) || _.isArray(data)) {
+        if (_.isObject(data)) {
           this.data = data;
         }
         else {
           this.data = {
-            CharonError: "invalid error data type: " + typeof data,
+            constructorError: "invalid error data type: " + typeof data,
             originalData: data
           };
         }
@@ -119,7 +119,18 @@ _.extend(Charon, errors);
 Charon.Client = extend.call(Function, _.extend({},
   errors, // supply a reference to all errors in Client instances
   {
-    constructor: function Client () {},
+    constructor: function Client () {
+      // set self-reference
+      this.client = this;
+      // wrap initialization method to toggle state flag and return self ref
+      this.initialize = _.wrap(this.initialize,
+        _.bind(function (origInitialize) {
+          origInitialize.apply(this, _.rest(arguments, 1));
+          this.isInitialized = true;
+          return this;
+        }, this)
+      );
+    },
 
     // Initializes the Client instance. Intended to be run just once, at
     // time of app bootstrap / initialization.
@@ -129,6 +140,9 @@ Charon.Client = extend.call(Function, _.extend({},
     initialize:  function (options) {
       _.extend(this, options);
     },
+
+    // A simple flag to keep track of initialization state
+    isInitialized: false,
 
     // Logs the specified data.
     // Intended as a logging-lib-agnostic layer, allowing for isomorphic
@@ -207,7 +221,7 @@ Charon.Client = extend.call(Function, _.extend({},
 
     // creates the context used when substituting values in a URL template
     makeUrlTemplateContext: function (data, options) {
-      return _.extend({}, data, options);
+      return _.extend({}, this.client, data, options);
     },
 
     // Substitutes template placeholders in a URL with actual values.
@@ -451,10 +465,16 @@ Charon.ResourceManager = extend.call(Function,
       // end unpack params
 
       // define service call function:
-      return function ServiceCall (data, options, callback) {
+      var serviceCall = function ServiceCall (data, options, callback) {
         // unpack params
-        // options may be omitted; accept shifted params
-        if (_.isFunction(options)) {
+        // both data and options may be omitted; accept single callback param
+        if (_.isFunction(data)) {
+          callback = data;
+          data = undefined;
+          options = undefined;
+        }
+        // options may be singly omitted; accept shifted params
+        else if (_.isFunction(options)) {
           callback = options;
           options = undefined;
         }
@@ -463,6 +483,9 @@ Charon.ResourceManager = extend.call(Function,
         options || (options = {});
         callback || (callback = function () {});
         // end unpack params
+        if (! this.client.isInitialized) {
+          callback(new Charon.RuntimeError("Client is not initialized"));
+        }
         var getValue = _.bind(function (param) {
           return _.isFunction(param) ? param.call(this, data, options) : param;
         }, this);
@@ -487,7 +510,7 @@ Charon.ResourceManager = extend.call(Function,
 
         this.submitRequest(requestSpec, responseHandler);
       };
-      return this;
+      return serviceCall;
     },
 
     // Defines multiple service calls and assigns to properties on this

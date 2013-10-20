@@ -16,6 +16,7 @@ REST API.
 so your app code doesn't have to.
 * Charon uses configurable middleware to parse responses, so you can easily add
 additional functionality without having to rewrite the whole thing.
+* Now with 100% test coverage (as measured by [jscoverage](https://npmjs.org/package/jscoverage)).
 
 Don't call it a framework
 -----------------------------
@@ -44,10 +45,9 @@ Todo: Make it better
 --------------------
 
 * documentation
-* streamlined logging
 * transparent caching according to response headers
 * isomorphic browser / mobile / server execution
-* HATEOAS integration
+* HATEOAS / link integration
 
 Example client definition and usage
 ----------------------------------------------------

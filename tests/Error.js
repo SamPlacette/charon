@@ -5,6 +5,7 @@ var Charon = require('../index.js');
 describe('Error', function () {
 
   var testCases = [
+    { name: "Error", parents: [] },
     { name: "ConsumerError", parents: [] },
     { name: "ServiceError", parents: [] },
     { name: "RequestForbiddenError", parents: [Charon.ConsumerError] },
@@ -41,9 +42,19 @@ describe('Error', function () {
       });
 
       it('should accept message and data', function () {
-        var err = new errCtor('testMessage', { unexpected: true });
+        var err = new errCtor('testMessage', { someProperty: true });
         err.should.have.property('message', 'testMessage');
-        err.data.should.eql({ unexpected: true });
+        err.data.should.eql({ someProperty: true });
+      });
+
+      it('should handle unexpected data type', function () {
+        var err = new errCtor('testMessage', "foo");
+        err.should.have.property('message', 'testMessage');
+        should.exist(err.data);
+        err.data.should.eql({
+          constructorError: 'invalid error data type: string',
+          originalData: "foo"
+        });
       });
 
       inheritanceChain.forEach(function (parentErr) {
