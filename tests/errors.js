@@ -24,15 +24,15 @@ describe('Error', function () {
 
     describe(name, function () {
 
-      it('should have name "Charon.' + name + '"', function () {
+      it('should have name "' + name + '"', function () {
         var err = new errCtor();
-        err.name.should.equal('Charon.' + name);
+        err.name.should.equal('' + name);
       });
 
       it('should accept message alone', function () {
         var err = new errCtor('testMessage');
         err.should.have.property('message', 'testMessage');
-        should.not.exist(err.data);
+        err.data.should.eql({});
       });
 
       it('should accept data alone', function () {
@@ -52,8 +52,7 @@ describe('Error', function () {
         err.should.have.property('message', 'testMessage');
         should.exist(err.data);
         err.data.should.eql({
-          constructorError: 'invalid error data type: string',
-          originalData: "foo"
+          value: "foo"
         });
       });
 

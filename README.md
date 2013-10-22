@@ -1,6 +1,21 @@
 Charon
 ======
 
+Note about Charon 0.9.x pre-release
+--------------------------------------------------
+
+Charon is now at 0.9.x and heading for the big One-Oh. This pre-release version
+implements new features that you may or may not care about. If you don't care
+about hyperlinking in your API, you may be better off with the last version,
+0.0.4, which featured better test coverage and a simpler codebase.
+
+If you do care about hyperlinks, please use Charon 0.9.x, and keep in mind that
+some interfaces (namely, headers and body service params) will be changing in
+the 1.0.0 release.
+
+Charon
+-------
+
 Charon is a little API client factory, created to abstract away some of the
 nitty gritty aspects of interacting with a ReST API over HTTP. At its core,
 Charon is a means of organizing an API domain into a single client-namespace
